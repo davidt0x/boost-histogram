@@ -8,6 +8,7 @@ on:
   pull_request:
     branches:
       - master
+      - develop
   push:
     branches:
       - master
@@ -18,52 +19,19 @@ on:
 
 env:
   SETUPTOOLS_SCM_PRETEND_VERSION: ${{ github.event.inputs.overrideVersion }}
+  CIBW_TEST_EXTRAS: test
+  CIBW_TEST_COMMAND: "pytest {project}/tests"
 
 
 jobs:
-  build_sdist:
-    name: Build SDist
+
+  build_arch_wheels:
+    name: ${{ matrix.arch }} wheels
     runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v1
-      with:
-        submodules: true
-
-    - uses: actions/setup-python@v2
-
-    - name: Install deps
-      run: python -m pip install build twine
-
-    - name: Build SDist
-      run: python -m build -s
-
-    - name: Check metadata
-      run: twine check dist/*
-
-    - uses: actions/upload-artifact@v2
-      with:
-        path: dist/*.tar.gz
-
-
-  build_wheels:
-    name: ${{ matrix.type }} wheels on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        type: [Standard]
-
-        include:
-          - os: ubuntu-latest
-            type: Standard
-            CIBW_MANYLINUX_X86_64_IMAGE: manylinux2010
-            CIBW_MANYLINUX_I686_IMAGE: manylinux2010
-
-          - os: ubuntu-latest
-            type: ManyLinux1
-            CIBW_MANYLINUX_X86_64_IMAGE: skhep/manylinuxgcc-x86_64
-            CIBW_MANYLINUX_I686_IMAGE: skhep/manylinuxgcc-i686
+        arch: [aarch64, s390x, ppc64le]
 
     steps:
     - uses: actions/checkout@v1
@@ -72,13 +40,9 @@ jobs:
 
     - uses: actions/setup-python@v2
 
-    - uses: joerick/cibuildwheel@v1.7.4
-      env:
-        CIBW_SKIP: cp27-win* pp*
-        CIBW_MANYLINUX_I686_IMAGE: ${{ matrix.CIBW_MANYLINUX_I686_IMAGE }}
-        CIBW_MANYLINUX_X86_64_IMAGE: ${{ matrix.CIBW_MANYLINUX_X86_64_IMAGE }}
-        CIBW_TEST_EXTRAS: test
-        CIBW_TEST_COMMAND: "pytest {project}/tests"
+    - uses: henryiii/cibuildwheel@feat/archgha
+      with:
+        archs: ${{ matrix.arch }}
 
     - name: Show files
       run: ls -lh wheelhouse
@@ -92,104 +56,3 @@ jobs:
       uses: actions/upload-artifact@v2
       with:
         path: wheelhouse/*.whl
-
-  build_pypy_wheels:
-    name: PyPy wheels on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-
-
-    steps:
-    - uses: actions/checkout@v1
-      with:
-        submodules: true
-
-    - uses: actions/setup-python@v2
-
-    - uses: joerick/cibuildwheel@v1.7.4
-      env:
-        CIBW_SKIP: cp*
-
-    - name: Show files
-      run: ls -lh wheelhouse
-      shell: bash
-
-    - name: Verify clean directory
-      run: git diff --exit-code
-      shell: bash
-
-    - name: Upload wheels
-      uses: actions/upload-artifact@v2
-      with:
-        path: wheelhouse/*.whl
-
-
-  # Windows 2.7 (requires pybind11 workaround)
-  build_win27_wheels:
-    name: Py 2.7 wheels on Windows
-    runs-on: windows-latest
-
-    steps:
-    - uses: actions/checkout@v1
-      with:
-        submodules: true
-
-    - uses: actions/setup-python@v2
-
-
-    - uses: ilammy/msvc-dev-cmd@v1
-
-    - name: Build 64-bit wheel
-      uses: joerick/cibuildwheel@v1.7.4
-      env:
-        CIBW_BUILD: cp27-win_amd64
-        DISTUTILS_USE_SDK: 1
-        MSSdk: 1
-
-    - uses: ilammy/msvc-dev-cmd@v1
-      with:
-        arch: x86
-
-    - name: Build 32-bit wheel
-      uses: joerick/cibuildwheel@v1.7.4
-      env:
-        CIBW_BUILD: cp27-win32 pp27-win32
-        DISTUTILS_USE_SDK: 1
-        MSSdk: 1
-        CIBW_TEST_EXTRAS: test
-        CIBW_TEST_COMMAND: "pytest {project}/tests"
-
-    - name: Show files
-      run: ls -lh wheelhouse
-      shell: bash
-
-    - name: Verify clean directory
-      run: git diff --exit-code
-      shell: bash
-
-    - uses: actions/upload-artifact@v2
-      with:
-        path: wheelhouse/*.whl
-
-
-  upload_all:
-    name: Upload if release
-    needs: [build_wheels, build_pypy_wheels, build_win27_wheels, build_sdist]
-    runs-on: ubuntu-latest
-    if: github.event_name == 'release' && github.event.action == 'published'
-
-    steps:
-    - uses: actions/setup-python@v2
-
-    - uses: actions/download-artifact@v2
-      with:
-        name: artifact
-        path: dist
-
-    - uses: pypa/gh-action-pypi-publish@v1.4.1
-      with:
-        user: __token__
-        password: ${{ secrets.pypi_password }}
